@@ -397,18 +397,32 @@ if (populated.includes('dsm-bar') && populated.includes('dsm-chip')) {
   if (/addEventListener\(\s*'keyup'/.test(source)) ok('capture arms on keyup (keyboard selection)');
   else fail('capture arms on keyup (keyboard selection)', new Error("missing addEventListener('keyup')"));
 
-  // Clicking away must cancel, in the capture phase so rows that stop
-  // propagation cannot swallow it.
+  // Clicking away must cancel in the capture phase so rows that stop propagation
+  // cannot swallow it.
   const hasAway = /addEventListener\(\s*'pointerdown'[^)]*true\s*\)/.test(source);
   if (hasAway) ok('clicking away cancels (capture-phase pointerdown)');
   else fail('clicking away cancels (capture-phase pointerdown)', new Error('missing capture-phase pointerdown'));
 
-  // The bubble must stop its own presses so a click inside it is not "away".
-  // Anchored to the bubble's own handler: `stopPropagation` also appears on the
-  // annotation chip's remove button, which would mask a regression here.
-  const bubbleStops = /onMouseDown: \(event\) => \{\s*event\.preventDefault\(\);\s*event\.stopPropagation\(\);/.test(source);
-  if (bubbleStops) ok('bubble stops its own press propagation');
-  else fail('bubble stops its own press propagation', new Error('bubble onMouseDown no longer stops propagation'));
+  // The cancel must be a CONTAINMENT TEST on the event target.
+  //
+  // A capture-phase listener on `document` runs before the bubble's own handler,
+  // so `stopPropagation()` inside the bubble cannot protect a click on it: an
+  // unconditional cancel closed the bubble the moment the reader clicked its own
+  // textarea. The previous assertion here checked for `stopPropagation`, which
+  // passed while the behaviour was broken — it is replaced by this one.
+  const containment = /const current = bubbleRef\.current;[\s\S]{0,160}?current\.contains\(target\)[\s\S]{0,40}?return;/.test(source);
+  if (containment) {
+    ok('a press inside the bubble does not cancel it');
+  } else {
+    fail('a press inside the bubble does not cancel it',
+      new Error('click-away handler does not test containment'));
+  }
+
+  // The containment test must read the ref at event time: the bubble mounts in
+  // the same commit that arms the listener, so a ref captured earlier can be null.
+  const readsAtEventTime = /const onPointerDown = \(event\) => \{[\s\S]{0,400}?bubbleRef\.current/.test(source);
+  if (readsAtEventTime) ok('containment reads the live bubble ref');
+  else fail('containment reads the live bubble ref', new Error('bubble ref captured too early'));
 
   // Enter sends in one step, Shift+Enter only records, and neither produces a
   // newline. The handler branches on the modifier INSIDE the Enter branch now,

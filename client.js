@@ -584,6 +584,8 @@ body[data-ds-dark-theme] ::highlight(dsm-pending){background-color:rgba(47,109,2
       const [question, setQuestion] = React.useState('');
       const timerRef = React.useRef(null);
       const inputRef = React.useRef(null);
+      /** The mounted bubble, for the click-away containment test. */
+      const bubbleRef = React.useRef(null);
       /** True while the bubble owns the selection, so capture must stand down. */
       const pendingRef = React.useRef(false);
       pendingRef.current = pending !== null;
@@ -744,14 +746,22 @@ body[data-ds-dark-theme] ::highlight(dsm-pending){background-color:rgba(47,109,2
 
       React.useEffect(() => {
         if (pending === null) return undefined;
-        // Cancel on a pointer press anywhere outside the bubble. The bubble
-        // stops propagation on its own presses, so this only fires for real
-        // "clicked elsewhere" gestures — no cancel button needed.
-        const onPointerDown = () => {
+        // Cancel on a pointer press that is genuinely outside the bubble.
+        //
+        // This listens in the capture phase because the chat surface stops
+        // propagation on many of its own rows, which would otherwise swallow the
+        // event. Capture also runs BEFORE the bubble's own guard, so relying on
+        // the bubble to stop propagation never worked: the check has to be a
+        // containment test on the event target instead.
+        const onPointerDown = (event) => {
+          const target = event.target;
+          // Read the ref at event time, not at subscribe time: the bubble mounts
+          // in the same commit that arms this listener, and a ref captured while
+          // the effect ran may still be null.
+          const current = bubbleRef.current;
+          if (current !== null && target instanceof Node && current.contains(target)) return;
           cancelRef.current();
         };
-        // `capture` is required: the chat surface stops propagation on many of
-        // its own rows, which would otherwise swallow this.
         document.addEventListener('pointerdown', onPointerDown, true);
         return () => {
           document.removeEventListener('pointerdown', onPointerDown, true);
@@ -962,6 +972,7 @@ body[data-ds-dark-theme] ::highlight(dsm-pending){background-color:rgba(47,109,2
       // A captured selection opens the question bubble right next to the text.
       // Nothing is mirrored below, so there is one target for the eye.
       const bubble = pending !== null ? h(SelectionBubble, {
+        ref: bubbleRef,
         pending,
         question,
         inputRef,
