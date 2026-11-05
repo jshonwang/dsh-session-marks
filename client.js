@@ -93,7 +93,7 @@ window.__ModuleLoader__.load({
        inheritance is unreliable, so a translucent amber readable on both light
        and dark surfaces replaces the theme tokens the rest of the UI uses.
        Every other surface below follows the --dsw-alias-* tokens. */
-    const CSS = `
+    const STYLE_SHEET = `
 ::highlight(dsm-mark){background-color:rgba(255,193,7,.34);text-decoration:underline;text-decoration-color:rgba(255,152,0,.95);text-decoration-thickness:2px;text-underline-offset:2px}
 body[data-ds-dark-theme] ::highlight(dsm-mark){background-color:rgba(255,193,7,.24);text-decoration-color:rgba(255,193,7,.95)}
 ::highlight(dsm-pending){background-color:rgba(47,109,246,.28);text-decoration:underline;text-decoration-color:rgba(47,109,246,.95);text-decoration-thickness:2px;text-underline-offset:2px}
@@ -1027,7 +1027,7 @@ body[data-ds-dark-theme] ::highlight(dsm-pending){background-color:rgba(47,109,2
       ctx.effect(() => {
         const tag = document.createElement('style');
         tag.dataset.plugin = 'dsh-session-marks';
-        tag.textContent = CSS;
+        tag.textContent = STYLE_SHEET;
         document.head.appendChild(tag);
         return () => {
           tag.remove();

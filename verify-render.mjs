@@ -552,6 +552,40 @@ if (populated.includes('dsm-bar') && populated.includes('dsm-chip')) {
   }
 }
 
+/* --- the module must not shadow the browser's CSS object -------------- */
+
+{
+  const source = fs.readFileSync(PLUGIN, 'utf8');
+
+  // The CSS Custom Highlight API lives on the global `CSS`. A module-level
+  // `const CSS = "…"` shadows it, so `CSS.highlights` reads a string property
+  // and every highlight silently stops working — no error, no console message.
+  // This shipped once; the guard exists so it cannot ship again.
+  const shadowsCss = /(?:^|\n)\s*(?:const|let|var)\s+CSS\s*=/.test(source);
+  if (!shadowsCss) {
+    ok('stylesheet binding does not shadow the global CSS object');
+  } else {
+    fail('stylesheet binding does not shadow the global CSS object',
+      new Error('a local `CSS` binding shadows CSS.highlights'));
+  }
+
+  // Highlights are only reachable through the real global.
+  if (/CSS\.highlights/.test(source)) {
+    ok('highlights read the global CSS.highlights');
+  } else {
+    fail('highlights read the global CSS.highlights', new Error('CSS.highlights is gone'));
+  }
+
+  // A shadowed binding is only detectable if the stylesheet variable has a name
+  // that cannot collide with a browser global.
+  const styleBinding = source.match(/(?:const|let|var)\s+(\w+)\s*=\s*`/);
+  if (styleBinding !== null && styleBinding[1] !== 'CSS') {
+    ok(`stylesheet binding is named ${styleBinding[1]} (no global collision)`);
+  } else {
+    fail('stylesheet binding has a non-colliding name', new Error('stylesheet binding is missing or named CSS'));
+  }
+}
+
 /* --- every `h()` first argument must be renderable ------------------- */
 
 {
