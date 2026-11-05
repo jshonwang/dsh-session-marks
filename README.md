@@ -62,14 +62,29 @@
 
 ## 安装
 
-在 DSH 的 **设置 → 插件** 中安装（插件管理器接受包名来自 npm，或本地目录）：
+本插件尚未发布到 npm，从源码仓库安装即可。三种方式任选：
 
-- npm 包名：`dsh-session-marks`
-- 本地目录：指向本仓库根目录
+**方式 1：插件市场（推荐）**
 
-已配置 `dshopen.org` 插件市场的用户，也可以在 **发现** 标签页里搜索 `session-marks` 直接安装。
+已配置插件索引源的用户，在 **发现** 标签页搜索 `session marks` 或 `标注`，点安装即可。
 
-> 本插件的 `client.js` 是已构建产物，无需构建步骤；`verify-render.mjs` 是开发期测试脚本，不随 npm 包发布。
+**方式 2：插件管理器填 git 地址**
+
+在 DSH 的 **设置 → 插件** 中，安装目标填：
+
+```
+git+https://github.com/jshonwang/dsh-session-marks.git
+```
+
+**方式 3：克隆后指向目录**
+
+```bash
+git clone https://github.com/jshonwang/dsh-session-marks.git
+```
+
+然后在插件管理器里指向克隆出来的目录。
+
+> `client.js` 是已构建产物，无需构建步骤。`verify-render.mjs` 是开发期测试脚本，不影响安装。
 
 ## 兼容性
 
