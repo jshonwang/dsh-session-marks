@@ -1,0 +1,57 @@
+{
+  "name": "dsh-session-marks",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Proofread-style annotation for DSH: select any passage of a reply, attach a question to it, and every note is quoted into one numbered follow-up.",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "annotation",
+    "quote",
+    "conversation"
+  ],
+  "license": "MIT",
+  "author": "jshonwang",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jshonwang/dsh-session-marks.git"
+  },
+  "homepage": "https://github.com/jshonwang/dsh-session-marks#readme",
+  "bugs": {
+    "url": "https://github.com/jshonwang/dsh-session-marks/issues"
+  },
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "verify": "node verify-render.mjs"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-conversation"
+      ]
+    }
+  }
+}

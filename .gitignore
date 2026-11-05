@@ -1,0 +1,19 @@
+# Dependencies
+node_modules/
+
+# Build and pack artifacts
+*.tgz
+dist/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Editor and OS noise
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Local scratch
+.tmp/
