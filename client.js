@@ -33,8 +33,10 @@ window.__ModuleLoader__.load({
     const NS = 'session-marks';
     /** Storage key prefix; one bucket per Session. */
     const STORAGE_PREFIX = 'dsh-session-marks:v2:';
-    /** Custom Highlight registry name shared by every annotation. */
+    /** Custom Highlight registry name shared by every saved annotation. */
     const HIGHLIGHT_NAME = 'dsm-mark';
+    /** Separate registry name for the passage being annotated right now. */
+    const PENDING_HIGHLIGHT = 'dsm-pending';
     /** Characters of context kept on each side of a quote, for relocation. */
     const CONTEXT_CHARS = 48;
     /** Budget inside the inserted quote block, per passage. */
@@ -49,7 +51,7 @@ window.__ModuleLoader__.load({
       'pending.multi': '一次只能标在同一段内容里',
       'editor.question': '针对这段话的问题',
       'editor.placeholder': '例如：这里为什么加锁？换成乐观锁会怎样？',
-      'editor.hint': 'Enter 保存 · Esc 取消 · 点空白处放弃',
+      'editor.hint': 'Enter 直接发送 · Shift+Enter 只保存 · Esc 取消',
       'bar.count': '已标注 {count} 处',
       'bar.copy': '复制引用',
       'bar.clear': '清空',
@@ -70,7 +72,7 @@ window.__ModuleLoader__.load({
       'pending.multi': 'Select inside one passage at a time',
       'editor.question': 'Your question about it',
       'editor.placeholder': 'e.g. Why is a lock needed here? What breaks with an optimistic one?',
-      'editor.hint': 'Enter to save · Esc to cancel · click away to discard',
+      'editor.hint': 'Enter sends · Shift+Enter saves only · Esc cancels',
       'bar.count': '{count} annotated',
       'bar.copy': 'Copy quote',
       'bar.clear': 'Clear',
@@ -94,6 +96,8 @@ window.__ModuleLoader__.load({
     const CSS = `
 ::highlight(dsm-mark){background-color:rgba(255,193,7,.34);text-decoration:underline;text-decoration-color:rgba(255,152,0,.95);text-decoration-thickness:2px;text-underline-offset:2px}
 body[data-ds-dark-theme] ::highlight(dsm-mark){background-color:rgba(255,193,7,.24);text-decoration-color:rgba(255,193,7,.95)}
+::highlight(dsm-pending){background-color:rgba(47,109,246,.28);text-decoration:underline;text-decoration-color:rgba(47,109,246,.95);text-decoration-thickness:2px;text-underline-offset:2px}
+body[data-ds-dark-theme] ::highlight(dsm-pending){background-color:rgba(47,109,246,.38);text-decoration-color:rgba(120,170,255,.95)}
 .dsm-toolbar{position:fixed;z-index:60;display:flex;align-items:center;gap:6px;padding:4px 6px;border:.5px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-md);background:var(--dsw-alias-bg-overlay);box-shadow:var(--dsw-elevation-panel);color:var(--dsw-alias-label-primary);font-size:12px;line-height:18px}
 .dsm-toolbarEditor{display:block;width:360px;max-width:calc(100vw - 16px);padding:8px}
 .dsm-bar{display:flex;align-items:stretch;gap:8px;flex-wrap:wrap;box-sizing:border-box;width:100%;padding:6px 10px;border:.5px solid var(--dsw-alias-border-l1);border-radius:var(--dsw-radius-lg);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px}
@@ -334,9 +338,37 @@ body[data-ds-dark-theme] ::highlight(dsm-mark){background-color:rgba(255,193,7,.
       registry.set(HIGHLIGHT_NAME, new Highlight(...ranges));
     }
 
+    /**
+     * Paint the passage the reader is currently annotating.
+     *
+     * Focusing the question field collapses the document selection, which is
+     * what made the blue highlight vanish the instant the bubble appeared. The
+     * passage is therefore re-painted as a Highlight range, so it stays visibly
+     * marked while the reader types. It uses its own name so it can be cleared
+     * without disturbing the saved annotations.
+     * @param anchor - the pending anchor, or null to clear.
+     */
+    function paintPending(anchor) {
+      const registry = typeof CSS === 'undefined' ? undefined : CSS.highlights;
+      if (registry === undefined || typeof Highlight !== 'function') return;
+      if (anchor === null) {
+        registry.delete(PENDING_HIGHLIGHT);
+        return;
+      }
+      const range = locate(anchor);
+      if (range === null) {
+        registry.delete(PENDING_HIGHLIGHT);
+        return;
+      }
+      registry.set(PENDING_HIGHLIGHT, new Highlight(range));
+    }
+
     function clearHighlights() {
       const registry = typeof CSS === 'undefined' ? undefined : CSS.highlights;
-      if (registry !== undefined) registry.delete(HIGHLIGHT_NAME);
+      if (registry !== undefined) {
+        registry.delete(HIGHLIGHT_NAME);
+        registry.delete(PENDING_HIGHLIGHT);
+      }
     }
 
     /* ------------------------------------------------------------------ *
@@ -443,7 +475,7 @@ body[data-ds-dark-theme] ::highlight(dsm-mark){background-color:rgba(255,193,7,.
      * offsets, so it stays next to the text it belongs to.
      */
     const SelectionBubble = React.forwardRef(function SelectionBubble(props, ref) {
-      const { pending, question, inputRef, onChange, onSave, onCancel, t } = props;
+      const { pending, question, inputRef, onChange, onSave, onSaveOnly, onCancel, t } = props;
       const [drift, setDrift] = React.useState({ dx: 0, dy: 0 });
       const localRef = React.useRef(null);
 
@@ -492,7 +524,7 @@ body[data-ds-dark-theme] ::highlight(dsm-mark){background-color:rgba(255,193,7,.
         onClick: (event) => {
           event.stopPropagation();
         }
-      }, h(MarkEditor, { pending, question, inputRef, onChange, onSave, onCancel, t }));
+      }, h(MarkEditor, { pending, question, inputRef, onChange, onSave, onSaveOnly, onCancel, t }));
     });
 
     /**
@@ -502,11 +534,11 @@ body[data-ds-dark-theme] ::highlight(dsm-mark){background-color:rgba(255,193,7,.
      * so repeating it here would only be a second box saying what the selection
      * already says. The bubble therefore holds the question field alone.
      *
-     * There is no save button: `Enter` commits, `Escape` discards, and clicking
-     * away discards — so the common path is select, type, `Enter`.
+     * Keys: `Enter` annotates and sends in one step, `Shift+Enter` annotates
+     * without sending (to collect more marks first), `Escape` discards.
      */
     function MarkEditor(props) {
-      const { question, inputRef, onChange, onSave, onCancel, t } = props;
+      const { question, inputRef, onChange, onSave, onSaveOnly, onCancel, t } = props;
       return h('div', { className: 'dsm-editor' },
         h('textarea', {
           ref: inputRef,
@@ -516,10 +548,11 @@ body[data-ds-dark-theme] ::highlight(dsm-mark){background-color:rgba(255,193,7,.
           'aria-label': t('editor.question'),
           onChange: (event) => onChange(event.target.value),
           onKeyDown: (event) => {
-            // Enter commits; a newline is never wanted in a one-line question.
-            if (event.key === 'Enter' && !event.shiftKey) {
+            if (event.key === 'Enter') {
+              // A newline is never wanted in a one-line question.
               event.preventDefault();
-              onSave();
+              if (event.shiftKey) onSaveOnly();
+              else onSave();
             } else if (event.key === 'Escape') {
               event.preventDefault();
               onCancel();
@@ -637,6 +670,35 @@ body[data-ds-dark-theme] ::highlight(dsm-mark){background-color:rgba(255,193,7,.
         };
       }, [flash, sessionId, t]);
 
+      /* --- keep the pending passage visibly marked ---------------------- */
+
+      // Focusing the question field collapses the browser selection, so the
+      // blue native highlight disappears exactly when the bubble appears. The
+      // pending passage is re-painted as a Highlight range instead, which
+      // survives the focus move and keeps the reader's anchor visible.
+      React.useEffect(() => {
+        paintPending(pending === null ? null : pending.anchor);
+        if (pending === null) return undefined;
+        let frame = null;
+        const repaint = () => {
+          frame = null;
+          paintPending(pending.anchor);
+        };
+        const schedule = () => {
+          if (frame !== null) return;
+          frame = window.requestAnimationFrame(repaint);
+        };
+        // Rows re-render and scroll; re-resolve the range when the DOM moves.
+        const observer = new MutationObserver(schedule);
+        observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+        window.addEventListener('scroll', schedule, true);
+        return () => {
+          observer.disconnect();
+          window.removeEventListener('scroll', schedule, true);
+          if (frame !== null) window.cancelAnimationFrame(frame);
+        };
+      }, [pending]);
+
       /* --- highlight repaint ------------------------------------------- */
 
       React.useEffect(() => {
@@ -709,19 +771,65 @@ body[data-ds-dark-theme] ::highlight(dsm-mark){background-color:rgba(255,193,7,.
       // re-subscribing on every render.
       cancelRef.current = cancel;
 
-      const save = React.useCallback(() => {
+      /**
+       * Commit the pending question and immediately send everything.
+       *
+       * `Enter` in the bubble is the whole gesture: annotate, ask, send. The
+       * draft mirror runs on the effect that follows this state change, so the
+       * submit waits for the draft to actually contain the new block instead of
+       * guessing a delay — sending before the mirror lands would post the old
+       * text (missing this annotation).
+       * @param sendNow - true for Enter, false to only record the annotation.
+       */
+      const commit = React.useCallback((sendNow) => {
         if (pending === null) return;
         store.add({ ...pending.anchor, question: question.trim(), createdAt: Date.now() });
         setPending(null);
         setQuestion('');
         const selection = window.getSelection();
         if (selection !== null) selection.removeAllRanges();
-        // Hand the keyboard back to the composer: the bubble's own textarea is
-        // about to unmount, and after saving, the reader's next Enter is meant
-        // to send. Without this the focus falls to <body> and that Enter is
-        // swallowed — the draft looks ready but the key does nothing.
-        window.setTimeout(restoreComposerCaret, 0);
-      }, [pending, question, store]);
+        if (!sendNow) {
+          window.setTimeout(restoreComposerCaret, 0);
+          return;
+        }
+        // Poll a few frames for the mirror to publish, then submit. The counter
+        // bounds the wait so a failed mirror never leaves the reader hung.
+        let attempts = 0;
+        const trySend = () => {
+          attempts += 1;
+          const actions = props.inputActions;
+          const current = typeof draft === 'string' ? draft : '';
+          const ready = actions !== undefined
+            && actions !== null
+            && typeof actions.submit === 'function'
+            && current.trim() !== '';
+          if (ready) {
+            restoreComposerCaret();
+            try {
+              actions.submit();
+            } catch {
+              /* the reader can still press Enter in the composer */
+            }
+            return;
+          }
+          if (attempts >= 12) {
+            // Give up on auto-send, but never swallow the annotation: the block
+            // is mirrored and the reader's own Enter still works.
+            restoreComposerCaret();
+            return;
+          }
+          window.requestAnimationFrame(trySend);
+        };
+        window.requestAnimationFrame(trySend);
+      }, [draft, pending, props.inputActions, question, store]);
+
+      const save = React.useCallback(() => {
+        commit(true);
+      }, [commit]);
+
+      const saveOnly = React.useCallback(() => {
+        commit(false);
+      }, [commit]);
 
       /* --- keep the composer draft in sync with the annotations ---------- */
 
@@ -859,6 +967,7 @@ body[data-ds-dark-theme] ::highlight(dsm-mark){background-color:rgba(255,193,7,.
         inputRef,
         onChange: setQuestion,
         onSave: save,
+        onSaveOnly: saveOnly,
         onCancel: cancel,
         t
       }) : null;

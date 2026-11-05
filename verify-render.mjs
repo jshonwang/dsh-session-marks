@@ -410,10 +410,17 @@ if (populated.includes('dsm-bar') && populated.includes('dsm-chip')) {
   if (bubbleStops) ok('bubble stops its own press propagation');
   else fail('bubble stops its own press propagation', new Error('bubble onMouseDown no longer stops propagation'));
 
-  // Enter commits without a modifier, and Shift+Enter is not a newline.
-  const plainEnter = /event\.key === 'Enter' && !event\.shiftKey/.test(source);
-  if (plainEnter) ok('Enter commits the question');
-  else fail('Enter commits the question', new Error('missing plain-Enter handler'));
+  // Enter sends in one step, Shift+Enter only records, and neither produces a
+  // newline. The handler branches on the modifier INSIDE the Enter branch now,
+  // so the assertion pins that shape rather than the old `&& !shiftKey` form.
+  const enterSends = /event\.key === 'Enter'[\s\S]{0,200}?if \(event\.shiftKey\) onSaveOnly\(\);[\s\S]{0,80}?else onSave\(\);/.test(source);
+  if (enterSends) ok('Enter sends, Shift+Enter saves only');
+  else fail('Enter sends, Shift+Enter saves only', new Error('Enter no longer branches on shift'));
+
+  // The send must go through the composer's own submit action, not a synthetic
+  // key press or a direct draft write.
+  if (/actions\.submit\(\)/.test(source)) ok('sending uses the composer submit action');
+  else fail('sending uses the composer submit action', new Error('no actions.submit() call'));
 }
 
 /* --- draft mirroring and post-send cleanup ---------------------------- */
@@ -502,6 +509,46 @@ if (populated.includes('dsm-bar') && populated.includes('dsm-chip')) {
     ok('caret restore collapses to the end of the draft');
   } else {
     fail('caret restore collapses to the end of the draft', new Error('caret not collapsed to end'));
+  }
+}
+
+/* --- the pending passage stays visibly marked ------------------------- */
+
+{
+  const source = fs.readFileSync(PLUGIN, 'utf8');
+
+  // Focusing the field collapses the native selection; the passage must be
+  // re-painted as its own Highlight range or the blue mark vanishes.
+  if (/function paintPending\(anchor\)/.test(source)) {
+    ok('pending passage is painted as a Highlight range');
+  } else {
+    fail('pending passage is painted as a Highlight range', new Error('no paintPending()'));
+  }
+
+  // It needs its own registry name so clearing it cannot wipe saved marks.
+  if (/const PENDING_HIGHLIGHT = 'dsm-pending'/.test(source)
+    && /::highlight\(dsm-pending\)/.test(source)) {
+    ok('pending highlight has its own registry name and rule');
+  } else {
+    fail('pending highlight has its own registry name and rule', new Error('pending highlight name/rule missing'));
+  }
+
+  // It must be driven by the pending state, so it appears with the bubble and
+  // clears when the annotation is committed or cancelled.
+  if (/paintPending\(pending === null \? null : pending\.anchor\)/.test(source)) {
+    ok('pending highlight follows the pending selection');
+  } else {
+    fail('pending highlight follows the pending selection', new Error('not wired to pending state'));
+  }
+
+  // The send must wait for the mirror to publish, not fire on a fixed guess.
+  // Pinning the readiness CONDITION matters, not just the retry counter: a
+  // mutant that forces readiness true keeps the counter but sends too early.
+  const waitsForDraft = /const ready = actions !== undefined[\s\S]{0,220}?current\.trim\(\) !== ''/.test(source);
+  if (waitsForDraft && /attempts >= 12/.test(source) && /requestAnimationFrame\(trySend\)/.test(source)) {
+    ok('send waits for the mirrored draft before submitting');
+  } else {
+    fail('send waits for the mirrored draft before submitting', new Error('readiness is not gated on the draft contents'));
   }
 }
 
